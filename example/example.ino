@@ -1,8 +1,8 @@
-#include "PMS7003.h"
+#include "../PMS7003.h"
 #include <SoftwareSerial.h>
 
 SoftwareSerial softwareSerial(5, 6);
-pms::PMS7003<SoftwareSerial> pms7003(softwareSerial);
+pms::Sensor<SoftwareSerial> pms7003(softwareSerial, pms::mode::active);
 
 void setup() {
     Serial.begin(57600);
@@ -11,7 +11,7 @@ void setup() {
 
 void loop() {
     Serial.println("trying to read from sensor");
-
+PMS7003
     auto measurements = pms7003.read();
 
     if (measurements.is_ok) {
