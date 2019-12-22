@@ -12,10 +12,15 @@ Released into the public domain.
 
 namespace pms {
 
-struct Measurements {
+struct Concentration {
     unsigned int PM1_0;
     unsigned int PM2_5;
     unsigned int PM10_0;
+};
+
+struct Measurements {
+    Concentration factory;
+    Concentration atmospheric;
     bool is_ok = false;
 };
 
@@ -63,19 +68,30 @@ private:
     bool sync();
     void fill(Measurements &measurements);
     void reset();
+
+    void print_response();
+    void write(const std::array<unsigned char, 7>& cmd);
 };
 
 template<typename SerialInput>
 Sensor<SerialInput>::Sensor(SerialInput &serial, mode::Active)
 : serial(serial) {
-    serial.write(command::set_active.data(), command::set_active.size());
+#ifdef Debug
+    Serial.println("PMS7003: Setting sensor to active mode");
+#endif
+    serial.begin(9600);
+    write(command::set_active);
     prepare = &Sensor::do_nothing;
 }
 
 template<typename SerialInput>
 Sensor<SerialInput>::Sensor(SerialInput &serial, mode::Passive)
 : serial(serial) {
-    serial.write(command::set_passive.data(), command::set_passive.size());
+#ifdef Debug
+    Serial.println("PMS7003: Setting sensor to passive mode");
+#endif
+    serial.begin(9600);
+    write(command::set_passive);
     prepare = &Sensor::request_data;
 }
 
@@ -126,6 +142,7 @@ void Sensor<SerialInput>::drain() {
 
 template<typename SerialInput>
 void Sensor<SerialInput>::read_next() {
+     // TODO: read everything into the buffer
     previousByte = currentByte;
     currentByte = serial.read();
     checksum += currentByte;
@@ -156,18 +173,28 @@ bool Sensor<SerialInput>::sync() {
 template<typename SerialInput>
 void Sensor<SerialInput>::fill(Measurements& measurements) {
     unsigned int val = (currentByte & 0xff) + (previousByte << 8);
+     // TODO: read all data (number of particles in 0.1l of air)
     switch (bytes) {
         case 4:
             currentFrameLength = val + bytes;
             break;
         case 6:
-            measurements.PM1_0 = val;
+            measurements.factory.PM1_0 = val;
             break;
         case 8:
-            measurements.PM2_5 = val;
+            measurements.factory.PM2_5 = val;
             break;
         case 10:
-            measurements.PM10_0 = val;
+            measurements.factory.PM10_0 = val;
+            break;
+        case 12:
+            measurements.atmospheric.PM1_0 = val;
+            break;
+        case 14:
+            measurements.atmospheric.PM2_5 = val;
+            break;
+        case 16:
+            measurements.atmospheric.PM10_0 = val;
             break;
         case 32:
             checksum -= ((val >> 8) + (val & 0xFF));
@@ -187,17 +214,45 @@ void Sensor<SerialInput>::reset() {
 
 template<typename SerialInput>
 void Sensor<SerialInput>::sleep() {
-    serial.write(command::sleep.data(), command::sleep.size());
+#ifdef Debug
+    Serial.println("PMS7003: sleep");
+#endif
+   write(command::sleep);
 }
 
 template<typename SerialInput>
 void Sensor<SerialInput>::wakeup() {
-    serial.write(command::wakeup.data(), command::wakeup.size());
+#ifdef Debug
+    Serial.println("PMS7003: wakeup");
+#endif
+    write(command::wakeup);
 }
 
 template<typename SerialInput>
 void Sensor<SerialInput>::request_data() {
-    serial.write(command::request.data(), command::request.size());
+#ifdef Debug
+    Serial.println("PMS7003: requesting data");
+#endif
+    write(command::request);
+}
+
+template<typename SerialInput>
+void Sensor<SerialInput>::write(const std::array<unsigned char, 7>& cmd) {
+    serial.write(cmd.data(), cmd.size());
+#ifdef Debug
+    print_response();
+#endif
+}
+
+template<typename SerialInput>
+void Sensor<SerialInput>::print_response() {
+    Serial.print("PMS7003: response: ");
+    while(serial.available()) {
+        Serial.print("0x");
+        Serial.print((unsigned char)serial.read() & 0xFF, HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
 }
 
 }   // namespace pms
