@@ -1,8 +1,8 @@
-#include "../PMS7003.h"
+#include "PMS7003.h"
 #include <SoftwareSerial.h>
 
 SoftwareSerial softwareSerial(5, 6);
-pms::Sensor<SoftwareSerial> pms7003(softwareSerial, pms::mode::active);
+pms::Sensor<SoftwareSerial> pms7003(softwareSerial);
 
 void setup() {
     Serial.begin(57600);

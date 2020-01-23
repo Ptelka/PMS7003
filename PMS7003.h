@@ -8,7 +8,6 @@ Released into the public domain.
 */
 
 #include <array>
-#include <functional>
 
 namespace pms {
 
@@ -24,29 +23,31 @@ struct Measurements {
     bool is_ok = false;
 };
 
-namespace mode {
-struct Passive {} passive;
-struct Active {} active;
-}
+enum class mode {
+    passive,
+    active
+};
+
+using Command = std::array<uint8_t, 7>;
 
 namespace command {
-static std::array<unsigned char, 7> wakeup {0x42, 0x4D, 0xE4, 0x00, 0x01, 0x01, 0x74};
-static std::array<unsigned char, 7> sleep {0x42, 0x4D, 0xE4, 0x00, 0x00, 0x01, 0x73};
-static std::array<unsigned char, 7> request {0x42, 0x4D, 0xE2, 0x00, 0x00, 0x01, 0x71};
-static std::array<unsigned char, 7> set_passive {0x42, 0x4D, 0xE1, 0x00, 0x00, 0x01, 0x70};
-static std::array<unsigned char, 7> set_active {0x42, 0x4D, 0xE1, 0x00, 0x01, 0x01, 0x71};
+static Command wakeup {0x42, 0x4D, 0xE4, 0x00, 0x01, 0x01, 0x74};
+static Command sleep {0x42, 0x4D, 0xE4, 0x00, 0x00, 0x01, 0x73};
+static Command request {0x42, 0x4D, 0xE2, 0x00, 0x00, 0x01, 0x71};
+static Command set_passive {0x42, 0x4D, 0xE1, 0x00, 0x00, 0x01, 0x70};
+static Command set_active {0x42, 0x4D, 0xE1, 0x00, 0x01, 0x01, 0x71};
 }
 
 template<typename SerialInput>
 class Sensor {
 public:
-    Sensor(SerialInput &serial, mode::Passive);
-    Sensor(SerialInput &serial, mode::Active);
+    Sensor(SerialInput &serial, mode m = mode::active);
 
     Measurements read();
     void read(Measurements& measurements);
     void sleep();
     void wakeup();
+    void set_mode(mode m);
 
 private:
     static constexpr int MAX_FRAME_LEN = 32;
@@ -70,29 +71,31 @@ private:
     void reset();
 
     void print_response();
-    void write(const std::array<unsigned char, 7>& cmd);
+    void write(const Command& cmd);
 };
 
 template<typename SerialInput>
-Sensor<SerialInput>::Sensor(SerialInput &serial, mode::Active)
-: serial(serial) {
-#ifdef Debug
-    Serial.println("PMS7003: Setting sensor to active mode");
-#endif
+Sensor<SerialInput>::Sensor(SerialInput &serial, mode m)
+        : serial(serial) {
     serial.begin(9600);
-    write(command::set_active);
-    prepare = &Sensor::do_nothing;
+    set_mode(m);
 }
 
 template<typename SerialInput>
-Sensor<SerialInput>::Sensor(SerialInput &serial, mode::Passive)
-: serial(serial) {
+void Sensor<SerialInput>::set_mode(mode m) {
+    if (m == mode::active) {
 #ifdef Debug
-    Serial.println("PMS7003: Setting sensor to passive mode");
+        Serial.println("PMS7003: Setting sensor to active mode");
 #endif
-    serial.begin(9600);
-    write(command::set_passive);
-    prepare = &Sensor::request_data;
+        write(command::set_active);
+        prepare = &Sensor::do_nothing;
+    } else {
+#ifdef Debug
+        Serial.println("PMS7003: Setting sensor to passive mode");
+#endif
+        write(command::set_passive);
+        prepare = &Sensor::request_data;
+    }
 }
 
 template<typename SerialInput>
@@ -142,7 +145,7 @@ void Sensor<SerialInput>::drain() {
 
 template<typename SerialInput>
 void Sensor<SerialInput>::read_next() {
-     // TODO: read everything into the buffer
+    // TODO: read everything into the buffer
     previousByte = currentByte;
     currentByte = serial.read();
     checksum += currentByte;
@@ -157,7 +160,7 @@ template<typename SerialInput>
 bool Sensor<SerialInput>::sync() {
     if (bytes == 2 && currentByte == 0x4D && previousByte == 0x42) {
 #ifdef Debug
-    Serial.println("PMS7003: Synced");
+        Serial.println("PMS7003: Synced");
 #endif
         return true;
     }
@@ -173,7 +176,7 @@ bool Sensor<SerialInput>::sync() {
 template<typename SerialInput>
 void Sensor<SerialInput>::fill(Measurements& measurements) {
     unsigned int val = (currentByte & 0xff) + (previousByte << 8);
-     // TODO: read all data (number of particles in 0.1l of air)
+    // TODO: read all data (number of particles in 0.1l of air)
     switch (bytes) {
         case 4:
             currentFrameLength = val + bytes;
@@ -217,7 +220,7 @@ void Sensor<SerialInput>::sleep() {
 #ifdef Debug
     Serial.println("PMS7003: sleep");
 #endif
-   write(command::sleep);
+    write(command::sleep);
 }
 
 template<typename SerialInput>
@@ -237,8 +240,9 @@ void Sensor<SerialInput>::request_data() {
 }
 
 template<typename SerialInput>
-void Sensor<SerialInput>::write(const std::array<unsigned char, 7>& cmd) {
+void Sensor<SerialInput>::write(const Command& cmd) {
     serial.write(cmd.data(), cmd.size());
+    serial.flush();
 #ifdef Debug
     print_response();
 #endif
